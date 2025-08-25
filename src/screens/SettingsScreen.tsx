@@ -8,16 +8,23 @@ import {
   ScrollView,
   Alert,
   Modal,
+  ImageBackground,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../App';
-import { voiceAssistant, VoiceSettings } from '../utils/voiceAssistant';
+// Sesli asistan kaldırıldı
 import { notificationService, updateNotificationSettings } from '../utils/notificationService';
-import { COLORS, FONTS } from '../constants/typography';
+import { COLORS, FONTS, standardTextStyles } from '../constants/typography';
 import { triggerHapticFeedback, HapticType } from '../utils/hapticFeedback';
 import { useTheme } from '../contexts/ThemeContext';
+import { getCurrentUser, logout } from '../services/authService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { deleteAllUserData } from '../services/firestoreService';
+import { deleteUser } from 'firebase/auth';
+import * as Notifications from 'expo-notifications';
+import { Linking } from 'react-native';
+
 
 type SettingsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -27,51 +34,96 @@ export default function SettingsScreen() {
   
   const [hapticFeedback, setHapticFeedback] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [autoStart, setAutoStart] = useState(false);
+  // autoStart kaldırıldı
   const darkMode = themeType === 'dark';
-  const [voiceEnabled, setVoiceEnabled] = useState(voiceAssistant.isVoiceEnabled());
-  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
-    language: 'tr-TR',
-    pitch: 1.0,
-    rate: 0.8,
-    voice: 'female'
-  });
+  // Persisted preferences yükle
+  useEffect(() => {
+    (async () => {
+      try {
+        // auto_start_enabled kaldırıldı
+        const hapticStored = await AsyncStorage.getItem('haptic_enabled');
+        if (hapticStored !== null) setHapticFeedback(hapticStored === 'true');
+        const soundStored = await AsyncStorage.getItem('sound_enabled');
+        if (soundStored !== null) setSoundEnabled(soundStored === 'true');
+      } catch {}
+    })();
+  }, []);
+  // const [voiceEnabled, setVoiceEnabled] = useState(voiceAssistant.isVoiceEnabled());
+  // const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
+  //   language: 'tr-TR',
+  //   pitch: 1.0,
+  //   rate: 0.8,
+  //   voice: 'female'
+  // });
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [reminderTime, setReminderTime] = useState('09:00');
-  const CYCLE_KEY = 'quick_exercise_cycles';
-  const [cycleModalVisible, setCycleModalVisible] = useState(false);
-  const [cycleCount, setCycleCount] = useState(5);
-  const [pendingCycle, setPendingCycle] = useState(5);
+  const handleOpenLink = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch (e) {
+      Alert.alert('Hata', 'Bağlantı açılamadı');
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    Alert.alert(
+      'Hesabımı Sil',
+      'Tüm verileriniz kalıcı olarak silinecek. Bu işlem geri alınamaz. Emin misiniz?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        { 
+          text: 'Sil', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              const currentUser = getCurrentUser();
+              if (!currentUser) {
+                Alert.alert('Hata', 'Kullanıcı bulunamadı');
+                return;
+              }
+              await deleteAllUserData(currentUser.uid);
+              await deleteUser(currentUser);
+              await logout();
+            } catch (error: any) {
+              Alert.alert('Hata', 'Hesap silinirken bir sorun oluştu.');
+            }
+          }
+        },
+      ]
+    );
+  };
+
+  const handleNotificationsToggle = async (value: boolean) => {
+    setNotificationsEnabled(value);
+    if (value) {
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status !== 'granted') {
+        const req = await Notifications.requestPermissionsAsync();
+        if (req.status !== 'granted') {
+          Alert.alert(
+            'İzin Gerekli',
+            'Bildirim izni olmadan hatırlatıcı gönderemeyiz. Ayarlar > Bildirimler bölümünden izin verebilirsiniz.'
+          );
+          setNotificationsEnabled(false);
+          return;
+        }
+      }
+    } else {
+      try { await Notifications.cancelAllScheduledNotificationsAsync(); } catch {}
+    }
+  };
   // İstatistikler için örnek state (ileride gerçek verilerle doldurulacak)
   const [stats, setStats] = useState({
     totalSessions: 0,
-    totalMinutes: 0,
     currentStreak: 0,
     longestStreak: 0,
     lastSessionDate: '-',
     favoriteTechniques: [],
   });
 
-  useEffect(() => {
-    (async () => {
-      const stored = await AsyncStorage.getItem(CYCLE_KEY);
-      if (stored) {
-        setCycleCount(Number(stored));
-        setPendingCycle(Number(stored));
-      }
-    })();
-  }, []);
 
-  const openCycleModal = () => {
-    setPendingCycle(cycleCount);
-    setCycleModalVisible(true);
-  };
-  const closeCycleModal = () => setCycleModalVisible(false);
-  const saveCycle = async () => {
-    setCycleCount(pendingCycle);
-    await AsyncStorage.setItem(CYCLE_KEY, String(pendingCycle));
-    setCycleModalVisible(false);
-  };
+
+
 
   const handleResetStats = () => {
     triggerHapticFeedback(HapticType.WARNING);
@@ -95,26 +147,27 @@ export default function SettingsScreen() {
     );
   };
 
-  const handleSwitchChange = (value: boolean, type: string) => {
+  const handleSwitchChange = async (value: boolean, type: string) => {
     triggerHapticFeedback(HapticType.SELECTION);
     switch (type) {
       case 'haptic':
         setHapticFeedback(value);
+        try { await AsyncStorage.setItem('haptic_enabled', value ? 'true' : 'false'); } catch {}
         break;
       case 'sound':
         setSoundEnabled(value);
+        try { await AsyncStorage.setItem('sound_enabled', value ? 'true' : 'false'); } catch {}
         break;
-      case 'voice':
-        setVoiceEnabled(value);
-        if (value) {
-          voiceAssistant.toggleVoiceAssistant();
-        } else {
-          voiceAssistant.toggleVoiceAssistant();
-        }
-        break;
-      case 'autoStart':
-        setAutoStart(value);
-        break;
+      // autoStart kaldırıldı
+      // case 'voice':
+      //   setVoiceEnabled(value);
+      //   if (value) {
+      //     voiceAssistant.toggleVoiceAssistant();
+      //   } else {
+      //     voiceAssistant.toggleVoiceAssistant();
+      //   }
+      //   break;
+
       case 'darkMode':
         setThemeType(value ? 'dark' : 'light');
         break;
@@ -127,15 +180,15 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: themeColors.background }] }>
-      <ScrollView contentContainerStyle={[styles.scrollContent, { backgroundColor: themeColors.background }] }>
+    <ImageBackground source={require('../../assets/backgrounds/arkaplan.jpg')} style={{ flex: 1 }} resizeMode="cover">
+      <ScrollView style={{ flex: 1, backgroundColor: 'transparent' }} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Genel Ayarlar</Text>
+
           
-          <View style={styles.settingItem}>
+          <View style={[styles.settingItem, { backgroundColor: 'rgba(245, 245, 220, 0.1)', borderColor: '#DDD', borderWidth: 1, borderRadius: 12, padding: 16 }]}>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Haptic Feedback</Text>
-              <Text style={styles.settingDescription}>
+              <Text style={[standardTextStyles.label, { color: '#F5F5DC', marginBottom: 4, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Haptic Feedback</Text>
+              <Text style={[standardTextStyles.bodySmall, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
                 Nefes döngülerinde titreşim
               </Text>
             </View>
@@ -147,10 +200,10 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <View style={styles.settingItem}>
+          <View style={[styles.settingItem, { backgroundColor: 'rgba(245, 245, 220, 0.1)', borderColor: '#DDD', borderWidth: 1, borderRadius: 12, padding: 16 }]}>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Ses Efektleri</Text>
-              <Text style={styles.settingDescription}>
+              <Text style={[standardTextStyles.label, { color: '#F5F5DC', marginBottom: 4, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Ses Efektleri</Text>
+              <Text style={[standardTextStyles.bodySmall, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
                 Nefes komutları ve sesli rehberlik
               </Text>
             </View>
@@ -162,10 +215,10 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <View style={styles.settingItem}>
+          {/* <View style={[styles.settingItem, { backgroundColor: 'rgba(245, 245, 220, 0.1)', borderColor: '#DDD', borderWidth: 1, borderRadius: 12, padding: 16 }]}>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Sesli Asistan</Text>
-              <Text style={styles.settingDescription}>
+              <Text style={[standardTextStyles.label, { color: '#F5F5DC', marginBottom: 4, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Sesli Asistan</Text>
+              <Text style={[standardTextStyles.bodySmall, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
                 Türkçe sesli komutlar ve rehberlik
               </Text>
             </View>
@@ -175,101 +228,51 @@ export default function SettingsScreen() {
               trackColor={{ false: COLORS.gray[400], true: COLORS.primary }}
               thumbColor={voiceEnabled ? COLORS.white : COLORS.gray[300]}
             />
-          </View>
+          </View> */}
 
-          <View style={styles.settingItem}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Otomatik Başlat</Text>
-              <Text style={styles.settingDescription}>
-                Egzersiz seçildiğinde otomatik başlat
-              </Text>
-            </View>
-            <Switch
-              value={autoStart}
-              onValueChange={(value) => handleSwitchChange(value, 'autoStart')}
-              trackColor={{ false: COLORS.gray[400], true: COLORS.primary }}
-              thumbColor={autoStart ? COLORS.white : COLORS.gray[300]}
-            />
-          </View>
+          {/* Otomatik Başlat kaldırıldı */}
 
-          <View style={styles.settingItem}>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Karanlık Mod</Text>
-              <Text style={styles.settingDescription}>
-                Göz yorgunluğunu azaltır
-              </Text>
-            </View>
-            <Switch
-              value={darkMode}
-              onValueChange={(value) => handleSwitchChange(value, 'darkMode')}
-              trackColor={{ false: COLORS.gray[400], true: COLORS.primary }}
-              thumbColor={darkMode ? COLORS.white : COLORS.gray[300]}
-            />
-          </View>
+
 
           <TouchableOpacity 
-            style={styles.settingButton}
+            style={[styles.settingItem, { backgroundColor: 'rgba(245, 245, 220, 0.1)', borderColor: '#DDD', borderWidth: 1, borderRadius: 12, padding: 16, flexDirection: 'column', alignItems: 'flex-start' }]}
             onPress={() => handleNavigation('NotificationSettings')}
             activeOpacity={0.8}
           >
-            <Text style={styles.settingButtonText}>🔔 Bildirim Ayarları</Text>
-            <Text style={styles.settingButtonSubtext}>
-              Uyku/uyanma saatleri ve bildirim tercihleri
-            </Text>
+            <Text style={[standardTextStyles.bodyMedium, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>🔔 Bildirim Ayarları</Text>
+            <Text style={[standardTextStyles.bodySmall, { color: '#F5F5DC', marginTop: 6, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Bildirimler nefes egzersizi hatırlatmaları içindir; istenildiğinde kapatılabilir.</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.settingItem, styles.dangerButton, { justifyContent: 'center' }]}
+            onPress={handleDeleteAccount}
+            activeOpacity={0.8}
+          >
+            <Text style={[standardTextStyles.bodyMedium, styles.dangerButtonText]}>Hesabımı Sil</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Egzersiz Ayarları</Text>
-          <TouchableOpacity style={styles.settingButton} activeOpacity={0.8} onPress={openCycleModal}>
-            <Text style={styles.settingButtonText}>🔄 Döngü Sayısını Ayarla</Text>
-            <Text style={styles.settingButtonSubtext}>Hızlı egzersizler için: {cycleCount}</Text>
-          </TouchableOpacity>
-        </View>
-        <Modal
-          visible={cycleModalVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={closeCycleModal}
-        >
-          <View style={modalStyles.overlay}>
-            <View style={modalStyles.modal}>
-              <Text style={modalStyles.title}>Döngü Sayısı Seç</Text>
-              <View style={modalStyles.pickerRow}>
-                {[...Array(10)].map((_, i) => (
-                  <TouchableOpacity
-                    key={i+1}
-                    style={[modalStyles.cycleButton, pendingCycle === i+1 && modalStyles.selectedCycle]}
-                    onPress={() => setPendingCycle(i+1)}
-                  >
-                    <Text style={[modalStyles.cycleText, pendingCycle === i+1 && modalStyles.selectedCycleText]}>{i+1}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <View style={modalStyles.buttonRow}>
-                <TouchableOpacity style={modalStyles.cancelButton} onPress={closeCycleModal}>
-                  <Text style={modalStyles.cancelText}>İptal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={modalStyles.saveButton} onPress={saveCycle}>
-                  <Text style={modalStyles.saveText}>Kaydet</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
 
-        {/* Hakkında bölümü ve ilgili butonlar kaldırıldı */}
+
+
+
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>
+          <Text style={[standardTextStyles.bodyMedium, { color: '#F5F5DC', marginBottom: 4, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
             Nefes Egzersizi v1.0.0
           </Text>
-          <Text style={styles.footerSubtext}>
+          <Text style={[standardTextStyles.bodySmall, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
             Sakinleş, odaklan ve yenilen
           </Text>
+          <TouchableOpacity onPress={() => handleOpenLink('https://breathingapp-7662b.web.app/privacy.html')} activeOpacity={0.8}>
+            <Text style={[standardTextStyles.bodySmall, { color: '#F5F5DC', marginTop: 8, textDecorationLine: 'underline' }]}>Gizlilik Politikası</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => handleOpenLink('https://breathingapp-7662b.web.app/terms.html')} activeOpacity={0.8}>
+            <Text style={[standardTextStyles.bodySmall, { color: '#F5F5DC', marginTop: 4, textDecorationLine: 'underline' }]}>Kullanım Şartları</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+    </ImageBackground>
   );
 }
 
@@ -280,15 +283,18 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
+    paddingTop: 120,
     paddingBottom: 40,
+    flexGrow: 1,
+    justifyContent: 'space-between',
   },
   section: {
     marginBottom: 30,
+    backgroundColor: 'transparent',
   },
   sectionTitle: {
-    fontSize: 20,
-    fontFamily: FONTS.bold,
-    color: COLORS.text,
+    ...standardTextStyles.sectionTitle,
+    color: '#F5F5DC',
     marginBottom: 16,
     paddingLeft: 4,
   },
@@ -296,61 +302,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: COLORS.surface,
+    backgroundColor: 'transparent',
     borderRadius: 16,
     padding: 18,
     marginBottom: 12,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#DDD',
+    shadowColor: 'transparent',
   },
   settingInfo: {
     flex: 1,
     marginRight: 16,
   },
   settingLabel: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-    color: COLORS.text,
+    ...standardTextStyles.label,
+    color: '#F5F5DC',
     marginBottom: 4,
   },
   settingDescription: {
-    fontSize: 14,
-    fontFamily: 'Tahoma',
-    color: COLORS.textSecondary,
+    ...standardTextStyles.bodySmall,
+    color: '#F5F5DC',
   },
-  settingButton: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 12,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  settingButtonText: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-    color: COLORS.text,
-  },
-  settingButtonSubtext: {
-    fontSize: 12,
-    fontFamily: 'Tahoma',
-    color: COLORS.textSecondary,
-    marginTop: 4,
-  },
+
   dangerButton: {
     backgroundColor: COLORS.error + '10',
     borderWidth: 1,
     borderColor: COLORS.error + '20',
   },
   dangerButtonText: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.bodyMedium,
     color: COLORS.error,
   },
   footer: {
@@ -361,14 +341,12 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.gray[200],
   },
   footerText: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.bodyMedium,
     color: COLORS.text,
     marginBottom: 4,
   },
   footerSubtext: {
-    fontSize: 14,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.bodySmall,
     color: COLORS.textSecondary,
   },
   statsCard: {
@@ -392,87 +370,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statsValue: {
-    fontSize: 22,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.cardTitle,
     color: COLORS.primary,
   },
   statsLabel: {
-    fontSize: 13,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.caption,
     color: COLORS.textSecondary,
     marginTop: 2,
   },
 });
 
-const modalStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modal: {
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
-    padding: 24,
-    width: 320,
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 20,
-    fontFamily: 'Tahoma',
-    marginBottom: 20,
-  },
-  pickerRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  cycleButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.gray[200],
-    justifyContent: 'center',
-    alignItems: 'center',
-    margin: 6,
-  },
-  selectedCycle: {
-    backgroundColor: COLORS.primary,
-  },
-  cycleText: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-    color: COLORS.text,
-  },
-  selectedCycleText: {
-    color: COLORS.white,
-    fontFamily: 'Tahoma',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  cancelButton: {
-    flex: 1,
-    padding: 12,
-    alignItems: 'center',
-  },
-  saveButton: {
-    flex: 1,
-    padding: 12,
-    alignItems: 'center',
-  },
-  cancelText: {
-    color: COLORS.error,
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-  },
-  saveText: {
-    color: COLORS.primary,
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-  },
-}); 
+ 

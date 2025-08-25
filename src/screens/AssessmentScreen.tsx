@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,20 +8,24 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
+  ImageBackground,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList } from '../../App';
 import { generatePersonalizedProgram, AssessmentScores } from '../utils/programGenerator';
+import { getUserPreferences } from '../services/firestoreService';
 import { getCurrentUser } from '../services/authService';
 import { saveUserProgram } from '../services/firestoreService';
 import { saveAssessmentResults } from '../utils/programStorage';
-import { COLORS, FONTS } from '../constants/typography';
+import { COLORS, FONTS, standardTextStyles } from '../constants/typography';
 import { triggerHapticFeedback, HapticType } from '../utils/hapticFeedback';
+import { validateAssessmentScores, sanitizeNumber } from '../utils/validation';
+import { logAssessment, logError, logInfo, logUserAction, logWarn, logDebug } from '../utils/logger';
 
 const { width, height } = Dimensions.get('window');
 
-type AssessmentScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Assessment'>;
+type AssessmentScreenNavigationProp = StackNavigationProp<any, 'Assessment'>;
 
 const assessmentQuestions = [
   {
@@ -133,12 +137,73 @@ const assessmentQuestions = [
       { value: 4, label: 'Enerji artırma', description: 'Günlük enerji seviyemi artırmak istiyorum' },
       { value: 5, label: 'Genel sağlık', description: 'Genel sağlığımı iyileştirmek istiyorum' }
     ]
+  },
+  // Fiziksel sağlık durumu soruları
+  {
+    id: 'heart_condition',
+    question: 'Kalp hastalığı veya kalp problemi yaşıyor musunuz?',
+    options: [
+      { value: 0, label: 'Hayır', description: 'Kalp problemi yok' },
+      { value: 1, label: 'Evet', description: 'Kalp hastalığı var' }
+    ]
+  },
+  {
+    id: 'asthma_bronchitis',
+    question: 'Astım, bronşit veya solunum problemi yaşıyor musunuz?',
+    options: [
+      { value: 0, label: 'Hayır', description: 'Solunum problemi yok' },
+      { value: 1, label: 'Evet', description: 'Astım/bronşit var' }
+    ]
+  },
+  {
+    id: 'pregnancy',
+    question: 'Hamile misiniz?',
+    options: [
+      { value: 0, label: 'Hayır', description: 'Hamile değilim' },
+      { value: 1, label: 'Evet', description: 'Hamileyim' }
+    ]
+  },
+  {
+    id: 'high_blood_pressure',
+    question: 'Yüksek tansiyon probleminiz var mı?',
+    options: [
+      { value: 0, label: 'Hayır', description: 'Tansiyon problemi yok' },
+      { value: 1, label: 'Evet', description: 'Yüksek tansiyon var' }
+    ]
+  },
+  {
+    id: 'diabetes',
+    question: 'Diyabet hastalığınız var mı?',
+    options: [
+      { value: 0, label: 'Hayır', description: 'Diyabet yok' },
+      { value: 1, label: 'Evet', description: 'Diyabet var' }
+    ]
+  },
+  {
+    id: 'age_group',
+    question: 'Yaş grubunuz hangisi?',
+    options: [
+      { value: 1, label: '18-30 yaş', description: 'Genç yetişkin' },
+      { value: 2, label: '31-50 yaş', description: 'Orta yaş' },
+      { value: 3, label: '50+ yaş', description: 'İleri yaş' }
+    ]
+  },
+  {
+    id: 'physical_limitations',
+    question: 'Fiziksel kısıtlama veya sakatlığınız var mı?',
+    options: [
+      { value: 0, label: 'Hayır', description: 'Fiziksel kısıtlama yok' },
+      { value: 1, label: 'Evet', description: 'Fiziksel kısıtlama var' }
+    ]
   }
 ];
 
 export default function AssessmentScreen() {
   const navigation = useNavigation<AssessmentScreenNavigationProp>();
   const [currentQuestion, setCurrentQuestion] = useState(0);
+  const [backgroundLoaded, setBackgroundLoaded] = useState(false);
+  
+  // Varsayılan değerleri sıfırla
   const [answers, setAnswers] = useState<AssessmentScores>({
     stress: 0,
     sleep: 0,
@@ -149,40 +214,137 @@ export default function AssessmentScreen() {
     physical_activity: 0,
     meditation_experience: 0,
     work_life_balance: 0,
-    health_goals: 0
+    health_goals: 0,
+    // Fiziksel sağlık durumu - TÜMÜ 0 OLMALI
+    heart_condition: 0,
+    asthma_bronchitis: 0,
+    pregnancy: 0,
+    high_blood_pressure: 0,
+    diabetes: 0,
+    age_group: 0, // Kullanıcı seçim yapmalı
+    physical_limitations: 0
   });
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAnswering, setIsAnswering] = useState(false); // Çift tıklamayı önlemek için
+  const [interactedQuestions, setInteractedQuestions] = useState<Set<string>>(new Set());
+
+  // Sağlık soruları (otomatik 0 set edilir ama UI'da seçili gibi görünmesin)
+  const HEALTH_QUESTION_IDS: Array<keyof AssessmentScores> = [
+    'heart_condition',
+    'asthma_bronchitis',
+    'pregnancy',
+    'high_blood_pressure',
+    'diabetes',
+    'physical_limitations'
+  ];
+
+  const preloadBackground = async () => {
+    // Local dosyalar için preloading'e gerek yok, sadece onLoad handler kullanılacak
+    setBackgroundLoaded(true);
+  };
+
+  // Component mount olduğunda state'i temizle
+  useEffect(() => {
+    logDebug('AssessmentScreen: Component mount, state temizleniyor');
+    const initializeScreen = async () => {
+      await preloadBackground();
+      setCurrentQuestion(0);
+      setAnswers({
+        stress: 0,
+        sleep: 0,
+        focus: 0,
+        breathing: 0,
+        anxiety: 0,
+        energy: 0,
+        physical_activity: 0,
+        meditation_experience: 0,
+        work_life_balance: 0,
+        health_goals: 0,
+        heart_condition: 0,
+        asthma_bronchitis: 0,
+        pregnancy: 0,
+        high_blood_pressure: 0,
+        diabetes: 0,
+        age_group: 0,
+        physical_limitations: 0
+      });
+      setIsSubmitting(false);
+    };
+    
+    initializeScreen();
+  }, []);
+
+  // Hastalık sorularında varsayılan değerleri otomatik seç
+  useEffect(() => {
+    const currentQuestionData = assessmentQuestions[currentQuestion];
+    if (currentQuestionData) {
+      const questionId = currentQuestionData.id as keyof AssessmentScores;
+      
+      // Hastalık soruları için varsayılan değer (0 = Hayır) otomatik seç
+      if (HEALTH_QUESTION_IDS.includes(questionId) && answers[questionId] === 0) {
+        // Hastalık sorularında varsayılan olarak "Hayır" seç
+        setAnswers(prev => ({
+          ...prev,
+          [questionId]: 0 // 0 = Hayır
+        }));
+        logDebug(`Hastalık sorusu: ${questionId}, varsayılan değer (Hayır) otomatik seçildi`);
+      }
+    }
+  }, [currentQuestion]);
 
   const handleAnswer = (value: number) => {
+    // Çift tıklamayı önle
+    if (isAnswering) {
+      logDebug('Çift tıklama engellendi');
+      return;
+    }
+    
+    setIsAnswering(true);
     triggerHapticFeedback(HapticType.SELECTION);
     const questionId = assessmentQuestions[currentQuestion].id as keyof AssessmentScores;
+    
+    // Input sanitization
+    const sanitizedValue = sanitizeNumber(value);
+    
+    logUserAction('Assessment Answer', {
+      questionId,
+      value: sanitizedValue,
+      questionNumber: currentQuestion + 1
+    });
+    
     // Yeni cevapları hemen bir değişkende tut
     const updatedAnswers = {
       ...answers,
-      [questionId]: value
+      [questionId]: sanitizedValue
     };
     setAnswers(updatedAnswers);
+    setInteractedQuestions(prev => {
+      const next = new Set(prev);
+      next.add(String(questionId));
+      return next;
+    });
     
     setTimeout(() => {
       if (currentQuestion < assessmentQuestions.length - 1) {
         setCurrentQuestion(currentQuestion + 1);
       } else {
-        // handleSubmit'e güncel cevapları parametre olarak ilet
+        // Son soru cevaplandı, programı hazırla
+        logInfo('Son soru cevaplandı, program hazırlanıyor...');
         handleSubmit(updatedAnswers);
       }
+      // Cevap işlemi tamamlandıktan sonra tekrar tıklamaya izin ver
+      setIsAnswering(false);
     }, 500);
   };
 
-  const handleNext = () => {
-    triggerHapticFeedback(HapticType.LIGHT);
-    if (currentQuestion < assessmentQuestions.length - 1) {
-      setCurrentQuestion(currentQuestion + 1);
-    } else {
-      handleSubmit();
-    }
-  };
-
   const handlePrevious = () => {
+    // Çift tıklamayı önle
+    if (isAnswering) {
+      logDebug('Geri butonu çift tıklama engellendi');
+      return;
+    }
+    
     triggerHapticFeedback(HapticType.LIGHT);
     if (currentQuestion > 0) {
       setCurrentQuestion(currentQuestion - 1);
@@ -192,32 +354,72 @@ export default function AssessmentScreen() {
   // handleSubmit fonksiyonunu parametreli hale getir
   const handleSubmit = async (submitAnswers?: AssessmentScores) => {
     const finalAnswers = submitAnswers || answers;
-    // Tüm soruların cevaplanıp cevaplanmadığını kontrol et
-    const unansweredQuestions = Object.values(finalAnswers).filter(value => value === 0);
+    logInfo('Program hazırlanıyor, tüm cevaplar alındı');
+    
+    // Önce eksik soruları kontrol et
+    const unansweredQuestions = assessmentQuestions.filter(question => {
+      const answer = finalAnswers[question.id as keyof AssessmentScores];
+      const questionId = question.id as keyof AssessmentScores;
+      
+      // Hastalık sorularında 0 (Hayır) geçerli bir cevap
+      const healthQuestions = ['heart_condition', 'asthma_bronchitis', 'pregnancy', 'high_blood_pressure', 'diabetes', 'physical_limitations'];
+      
+      if (healthQuestions.includes(questionId)) {
+        // Hastalık sorularında 0 veya 1 geçerli
+        return answer === undefined || answer === null || (answer !== 0 && answer !== 1);
+      }
+      
+      // Diğer sorularda 0 geçersiz (kullanıcı seçim yapmalı)
+      return answer === undefined || answer === null || answer <= 0;
+    });
+    
     if (unansweredQuestions.length > 0) {
-      Alert.alert('Eksik Cevap', 'Lütfen tüm soruları cevaplayın.');
+      logWarn('Eksik sorular var', { count: unansweredQuestions.length });
+      Alert.alert('Eksik Cevap', `Lütfen tüm soruları cevaplayın. ${unansweredQuestions.length} soru eksik.`);
+      return;
+    }
+    
+    // Tüm sorular cevaplandıktan sonra validation yap
+    const validation = validateAssessmentScores(finalAnswers);
+    if (!validation.isValid) {
+      logError('Assessment validation failed', null, { errors: validation.errors });
+      Alert.alert('Veri Hatası', 'Değerlendirme verilerinde hata bulundu. Lütfen tekrar deneyin.');
       return;
     }
 
+    logInfo('Tüm sorular cevaplandı, program oluşturuluyor...');
     triggerHapticFeedback(HapticType.MEDIUM);
     setIsSubmitting(true);
 
     try {
       const currentUser = getCurrentUser();
       if (!currentUser) {
+        logError('Kullanıcı bilgisi bulunamadı');
         Alert.alert('Hata', 'Kullanıcı bilgisi bulunamadı. Lütfen tekrar giriş yapın.');
         return;
       }
 
-      // Kişiselleştirilmiş program oluştur
-      const personalizedProgram = generatePersonalizedProgram(finalAnswers);
+      // Kullanıcı tercihlerini al (döngü sayısı dahil)
+      let userCycleCount: number | undefined;
+      try {
+        const userPrefs = await getUserPreferences(currentUser.uid);
+        if (userPrefs && userPrefs.cycleCount) {
+          userCycleCount = userPrefs.cycleCount;
+          logInfo('Kullanıcı tercihleri alındı, döngü sayısı:', userCycleCount);
+        }
+      } catch (error) {
+        logWarn('Kullanıcı tercihleri alınamadı, varsayılan döngü sayısı kullanılıyor:', error);
+      }
 
-      // Firestore'a kaydet - İlk gün otomatik olarak tamamlanmış sayılsın
+      // Kişiselleştirilmiş program oluştur (döngü sayısı ile)
+      const personalizedProgram = generatePersonalizedProgram(finalAnswers, userCycleCount);
+
+      // Firestore'a kaydet - İlk gün başlatılsın
       await saveUserProgram(currentUser.uid, {
         assessmentScores: finalAnswers,
         program: personalizedProgram,
-        currentDay: 2, // İkinci günden başla
-        completedDays: [1], // İlk gün tamamlanmış
+        currentDay: 1, // İlk günden başla
+        completedDays: [], // İlk gün tamamlanmamış
         startDate: new Date().toISOString(),
         isActive: true,
       });
@@ -225,21 +427,29 @@ export default function AssessmentScreen() {
       // AsyncStorage'a da kaydet
       await saveAssessmentResults(finalAnswers, personalizedProgram);
 
+      // Assessment logging (without sensitive data)
+      const hasHealthConditions = Object.values(finalAnswers).some(value => 
+        ['heart_condition', 'asthma_bronchitis', 'pregnancy', 'high_blood_pressure', 
+         'diabetes', 'physical_limitations'].includes(value.toString())
+      );
+      
+      logAssessment('Standard', assessmentQuestions.length, hasHealthConditions);
+
       Alert.alert(
         'Başarılı!',
         'Kişiselleştirilmiş programınız oluşturuldu.',
         [
           {
             text: 'Programımı Görüntüle',
-            onPress: () => navigation.reset({
-              index: 0,
-              routes: [{ name: 'PersonalizedProgram' }],
-            })
+            onPress: () => navigation.replace('PersonalizedProgram')
           }
         ]
       );
     } catch (error: any) {
-      console.error('Program kaydetme hatası:', error);
+      logError('Program kaydetme hatası', error, {
+        questionCount: assessmentQuestions.length,
+        hasAnswers: Object.keys(finalAnswers).length
+      });
       Alert.alert('Hata', 'Program kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.');
     } finally {
       setIsSubmitting(false);
@@ -248,78 +458,85 @@ export default function AssessmentScreen() {
 
   const currentQuestionData = assessmentQuestions[currentQuestion];
   const currentAnswer = answers[currentQuestionData.id as keyof AssessmentScores];
+  const isHealthQuestion = HEALTH_QUESTION_IDS.includes(currentQuestionData.id as keyof AssessmentScores);
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Kişisel Değerlendirme</Text>
-        <Text style={styles.subtitle}>
-          Size en uygun nefes egzersizi programını oluşturmak için birkaç soru soracağız
-        </Text>
-      </View>
+    <ImageBackground source={require('../../assets/backgrounds/arkaplan.jpg')} style={{ flex: 1 }} resizeMode="cover" onLoad={() => setBackgroundLoaded(true)}>
+      <ScrollView style={{ flex: 1, backgroundColor: 'transparent' }} contentContainerStyle={{ paddingHorizontal: 15, paddingTop: 90 }} showsVerticalScrollIndicator={false}>
+                 <View style={styles.header}>
+           <Text style={[standardTextStyles.mainTitle, { color: '#F5F5DC', marginBottom: 8, textAlign: 'center', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Kişisel Değerlendirme</Text>
+           <Text style={[standardTextStyles.bodyMedium, { color: '#F5F5DC', textAlign: 'center', marginBottom: 10, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
+             Size en uygun nefes egzersizi programını oluşturmak için birkaç soru soracağız
+           </Text>
+         </View>
 
-      <View style={styles.progressContainer}>
-        <View style={styles.progressBar}>
-          <View 
-            style={[
-              styles.progressFill, 
-              { width: `${((currentQuestion + 1) / assessmentQuestions.length) * 100}%` }
-            ]} 
-          />
-        </View>
-        <Text style={styles.progressText}>
-          {currentQuestion + 1} / {assessmentQuestions.length}
-        </Text>
-      </View>
+         <View style={styles.progressContainer}>
+           <View style={styles.progressBar}>
+             <View 
+               style={[
+                 styles.progressFill, 
+                 { width: `${((currentQuestion + 1) / assessmentQuestions.length) * 100}%` }
+               ]} 
+             />
+           </View>
+           <Text style={[standardTextStyles.bodySmall, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
+             {currentQuestion + 1} / {assessmentQuestions.length}
+           </Text>
+         </View>
 
-      <View style={styles.questionContainer}>
-        <Text style={styles.questionText}>{currentQuestionData.question}</Text>
-        
-        <View style={styles.optionsContainer}>
-          {currentQuestionData.options.map((option) => (
-            <TouchableOpacity
-              key={option.value}
-              style={[
-                styles.optionCard,
-                currentAnswer === option.value && styles.selectedOption
-              ]}
-              onPress={() => handleAnswer(option.value)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.optionHeader}>
-                <Text style={[
-                  styles.optionLabel,
-                  currentAnswer === option.value && styles.selectedOptionText
-                ]}>
-                  {option.label}
-                </Text>
-                <View style={[
-                  styles.radioButton,
-                  currentAnswer === option.value && styles.selectedRadio
-                ]}>
-                  {currentAnswer === option.value && (
-                    <View style={styles.radioInner} />
-                  )}
+        <View style={styles.questionContainer}>
+          <Text style={[standardTextStyles.cardTitle, { color: '#FFFFFF', marginBottom: 24, lineHeight: 28, textAlign: 'center', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>{currentQuestionData.question}</Text>
+          
+          <View style={styles.optionsContainer}>
+            {currentQuestionData.options.map((option) => (
+              <TouchableOpacity
+                key={option.value}
+                style={[
+                  styles.optionCard,
+                  (currentAnswer === option.value && (!isHealthQuestion || interactedQuestions.has(String(currentQuestionData.id)))) && styles.selectedOption,
+                  isAnswering && styles.disabledOption
+                ]}
+                onPress={() => handleAnswer(option.value)}
+                activeOpacity={0.8}
+                disabled={isAnswering}
+              >
+                <View style={styles.optionHeader}>
+                  <Text style={[
+                    standardTextStyles.bodyLarge,
+                    { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 },
+                    (currentAnswer === option.value && (!isHealthQuestion || interactedQuestions.has(String(currentQuestionData.id)))) && styles.selectedOptionText
+                  ]}>
+                    {option.label}
+                  </Text>
+                  <View style={[
+                    styles.radioButton,
+                    (currentAnswer === option.value && (!isHealthQuestion || interactedQuestions.has(String(currentQuestionData.id)))) && styles.selectedRadio
+                  ]}>
+                    {(currentAnswer === option.value && (!isHealthQuestion || interactedQuestions.has(String(currentQuestionData.id)))) && (
+                      <View style={styles.radioInner} />
+                    )}
+                  </View>
                 </View>
-              </View>
-              <Text style={[
-                styles.optionDescription,
-                currentAnswer === option.value && styles.selectedOptionText
-              ]}>
-                {option.description}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text style={[
+                  standardTextStyles.bodySmall,
+                  { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 },
+                  (currentAnswer === option.value && (!isHealthQuestion || interactedQuestions.has(String(currentQuestionData.id)))) && styles.selectedOptionText
+                ]}>
+                  {option.description}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
-      </View>
 
-      {isSubmitting && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Programınız oluşturuluyor...</Text>
-        </View>
-      )}
-    </ScrollView>
+        {isSubmitting && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#F5F5DC" />
+            <Text style={[standardTextStyles.bodyMedium, { color: '#F5F5DC', marginTop: 16, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Programınız oluşturuluyor...</Text>
+          </View>
+        )}
+      </ScrollView>
+    </ImageBackground>
   );
 }
 
@@ -330,22 +547,26 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 15,
     marginTop: 20,
   },
   title: {
-    fontSize: 28,
-    fontFamily: 'Tahoma',
-    color: COLORS.primary,
+    ...standardTextStyles.mainTitle,
+    color: '#F5F5DC',
     marginBottom: 8,
     textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   subtitle: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-    color: COLORS.textSecondary,
+    ...standardTextStyles.bodyMedium,
+    color: '#F5F5DC',
     textAlign: 'center',
     marginBottom: 20,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   progressContainer: {
     width: '100%',
@@ -354,56 +575,58 @@ const styles = StyleSheet.create({
   progressBar: {
     width: '100%',
     height: 8,
-    backgroundColor: COLORS.gray[200],
+    backgroundColor: '#DDD',
     borderRadius: 4,
     marginBottom: 8,
   },
   progressFill: {
     height: '100%',
-    backgroundColor: COLORS.primary,
+    backgroundColor: '#4CAF50',
     borderRadius: 4,
   },
   progressText: {
-    fontSize: 14,
-    fontFamily: 'Tahoma',
-    color: COLORS.textSecondary,
+    ...standardTextStyles.bodySmall,
+    color: '#F5F5DC',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   questionContainer: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: 'rgba(245, 245, 220, 0.1)',
     borderRadius: 20,
     padding: 24,
-    marginBottom: 20,
-    shadowColor: COLORS.primary,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#DDD',
+    shadowColor: 'transparent',
   },
   questionText: {
-    fontSize: 22,
-    fontFamily: 'Tahoma',
-    color: COLORS.text,
+    ...standardTextStyles.cardTitle,
+    color: '#F5F5DC',
     marginBottom: 24,
     lineHeight: 28,
     textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   optionsContainer: {
     gap: 12,
   },
   optionCard: {
-    backgroundColor: COLORS.surfaceVariant,
+    backgroundColor: 'rgba(245, 245, 220, 0.1)',
     borderRadius: 16,
     padding: 20,
-    borderWidth: 3,
-    borderColor: COLORS.gray[200],
+    borderWidth: 1,
+    borderColor: '#DDD',
     marginBottom: 8,
   },
   selectedOption: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+    backgroundColor: 'rgba(245, 245, 220, 0.15)',
+    borderColor: '#F5F5DC',
+  },
+  disabledOption: {
+    opacity: 0.5,
+    backgroundColor: 'rgba(128, 128, 128, 0.1)',
   },
   optionHeader: {
     flexDirection: 'row',
@@ -412,38 +635,44 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   optionLabel: {
-    fontSize: 18,
-    fontFamily: 'Tahoma',
-    color: COLORS.text,
+    ...standardTextStyles.bodyLarge,
+    color: '#F5F5DC',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   selectedOptionText: {
     fontFamily: 'Tahoma',
-    color: COLORS.white,
+    color: '#F5F5DC',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   radioButton: {
     width: 20,
     height: 20,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: COLORS.primary,
+    borderColor: '#4CAF50',
     justifyContent: 'center',
     alignItems: 'center',
   },
   selectedRadio: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
   },
   radioInner: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: COLORS.white,
+    backgroundColor: '#F5F5DC',
   },
   optionDescription: {
-    fontSize: 14,
-    fontFamily: 'Tahoma',
-    color: COLORS.textSecondary,
-    lineHeight: 20,
+    ...standardTextStyles.bodySmall,
+    color: '#F5F5DC',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   navigationContainer: {
     flexDirection: 'row',
@@ -451,40 +680,46 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   navButton: {
-    backgroundColor: COLORS.surfaceVariant,
+    backgroundColor: 'rgba(245, 245, 220, 0.15)',
     borderRadius: 16,
     padding: 18,
     alignItems: 'center',
     flex: 1,
     marginHorizontal: 8,
     borderWidth: 1,
-    borderColor: COLORS.primary,
+    borderColor: '#DDD',
   },
   navButtonText: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-    color: COLORS.primary,
+    ...standardTextStyles.bodyMedium,
+    color: '#F5F5DC',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   primaryButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: '#4CAF50',
   },
   disabledButton: {
-    backgroundColor: COLORS.gray[300],
-    borderColor: COLORS.gray[300],
+    backgroundColor: '#DDD',
+    borderColor: '#DDD',
   },
   primaryButtonText: {
-    fontSize: 18,
-    fontFamily: 'Tahoma',
-    color: COLORS.white,
+    ...standardTextStyles.buttonLarge,
+    color: '#F5F5DC',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   loadingContainer: {
     alignItems: 'center',
     marginTop: 40,
   },
   loadingText: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-    color: COLORS.textSecondary,
+    ...standardTextStyles.bodyMedium,
+    color: '#F5F5DC',
     marginTop: 16,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
 }); 

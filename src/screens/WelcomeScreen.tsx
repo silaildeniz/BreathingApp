@@ -1,18 +1,45 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions, ImageBackground, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList } from '../../App';
-import { COLORS, FONTS } from '../constants/typography';
+import { COLORS, FONTS, standardTextStyles } from '../constants/typography';
 import { colors, theme } from '../constants/colors';
 import { triggerHapticFeedback, HapticType } from '../utils/hapticFeedback';
 
 const { width, height } = Dimensions.get('window');
 
-type WelcomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
+type WelcomeScreenNavigationProp = StackNavigationProp<any, 'Login'>;
 
 export default function WelcomeScreen() {
   const navigation = useNavigation<WelcomeScreenNavigationProp>();
+  const [fadeAnim] = useState(new Animated.Value(0));
+  const [breathAnim] = useState(new Animated.Value(0));
+
+  useEffect(() => {
+    // Fade in animasyonu başlat
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 2500, // 2.5 saniye
+      useNativeDriver: true,
+    }).start();
+
+    // Breathing animasyonu başlat
+    const breathAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathAnim, {
+          toValue: 1,
+          duration: 4000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(breathAnim, {
+          toValue: 0,
+          duration: 4000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    breathAnimation.start();
+  }, []);
 
   const handleStartPress = () => {
     triggerHapticFeedback(HapticType.LIGHT);
@@ -20,32 +47,132 @@ export default function WelcomeScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.light.background }]}>
-      {/* App Icon */}
-      <View style={styles.iconContainer}>
-        <Image
-          source={require('../../assets/icon.png')}
-          style={styles.appIcon}
-          resizeMode="contain"
-        />
-      </View>
-
-      {/* App Name */}
-      <Text style={[styles.appName, { color: theme.light.text }]}>Breathing App</Text>
-
-      {/* Welcome Message */}
-      <Text style={[styles.welcomeMessage, { color: theme.light.textSecondary }]}>
-        Nefes egzersizi uygulamasına hoşgeldiniz
-      </Text>
-
-      {/* Start Button */}
-      <TouchableOpacity
-        style={[styles.startButton, { backgroundColor: colors.primary[500] }]}
-        onPress={handleStartPress}
-        activeOpacity={0.8}
+    <View style={{ flex: 1 }}>
+      <Animated.Text 
+        style={[
+          standardTextStyles.mainTitle,
+          {
+            fontSize: 35,
+            color: '#FFD700',
+            marginBottom: 16,
+            textAlign: 'center',
+            textShadowColor: 'rgba(0, 0, 0, 0.9)',
+            textShadowOffset: { width: 2, height: 2 },
+            textShadowRadius: 4,
+            fontWeight: 'bold',
+            letterSpacing: 4,
+            opacity: breathAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.6, 1]
+            }),
+            transform: [{ scale: breathAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.8, 1.2]
+            })}],
+            position: 'absolute',
+            top: 200,
+            left: 20,
+            right: 20,
+            zIndex: 9999,
+            paddingVertical: 10
+          }
+        ]}
       >
-        <Text style={styles.startButtonText}>Başla</Text>
-      </TouchableOpacity>
+        BUHU
+      </Animated.Text>
+      <Text 
+        style={[
+          standardTextStyles.mainTitle, 
+          { 
+            color: '#F5F5DC', 
+            marginBottom: 24, 
+            textAlign: 'center', 
+            textShadowColor: 'rgba(0, 0, 0, 0.8)', 
+            textShadowOffset: { width: 1, height: 1 }, 
+            textShadowRadius: 1,
+            position: 'absolute',
+            top: 250,
+            left: 20,
+            right: 20,
+            zIndex: 9999,
+            fontWeight: '400'
+          }
+        ]}
+      >
+        Nefes Egzersizi
+      </Text>
+      <Image 
+        source={require('../../assets/icon.png')} 
+        style={{ 
+          width: 100, 
+          height: 100, 
+          borderRadius: 20, 
+          marginBottom: 20,
+          position: 'absolute',
+          top: 320,
+          left: '50%',
+          marginLeft: -50,
+          zIndex: 9999
+        }} 
+      />
+      <ImageBackground source={require('../../assets/backgrounds/arkaplan.jpg')} style={{ flex: 1 }} resizeMode="cover">
+        <View style={{ flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 140 }}>
+          <TouchableOpacity 
+            style={{ 
+              borderRadius: 18, 
+              paddingVertical: 18, 
+              paddingHorizontal: 64, 
+              alignItems: 'center', 
+              backgroundColor: 'rgba(255, 255, 255, 0.1)', 
+              borderWidth: 1, 
+              borderColor: '#DDD', 
+              shadowColor: 'transparent', 
+              marginBottom: 40,
+              position: 'absolute',
+              bottom: 220,
+              left: '40%',
+              marginLeft: -100,
+              zIndex: 9999
+            }} 
+            onPress={() => navigation.navigate('Login')} 
+            activeOpacity={0.5}
+          >
+            <Text style={[standardTextStyles.buttonLarge, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Yolculuğa Başla</Text>
+          </TouchableOpacity>
+          <Animated.Text 
+            style={[
+              standardTextStyles.bodyLarge, 
+              { 
+                color: '#F5F5DC', 
+                marginBottom: 20, 
+                textAlign: 'center', 
+                textShadowColor: 'rgba(0, 0, 0, 0.8)', 
+                textShadowOffset: { width: 1, height: 1 }, 
+                textShadowRadius: 2,
+                opacity: fadeAnim
+              }
+            ]}
+          >
+            Hoş geldin...
+          </Animated.Text>
+          <Animated.Text 
+            style={[
+              standardTextStyles.bodyLarge, 
+              { 
+                color: '#F5F5DC', 
+                marginBottom: 40, 
+                textAlign: 'center', 
+                textShadowColor: 'rgba(0, 0, 0, 0.8)', 
+                textShadowOffset: { width: 1, height: 1 }, 
+                textShadowRadius: 2,
+                opacity: fadeAnim
+              }
+            ]}
+          >
+            Şifa dolu yolculuğun burada başlıyor
+          </Animated.Text>
+        </View>
+      </ImageBackground>
     </View>
   );
 }
@@ -65,46 +192,35 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 24,
-    shadowColor: colors.neutral[900],
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 12,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#DDD',
+    shadowColor: 'transparent',
   },
   appName: {
-    fontSize: 32,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.mainTitle,
     marginBottom: 16,
     textAlign: 'center',
+    color: '#F5F5DC',
   },
   welcomeMessage: {
-    fontSize: 18,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.bodyLarge,
     textAlign: 'center',
     marginBottom: 60,
-    lineHeight: 26,
+    color: '#F5F5DC',
   },
   startButton: {
     borderRadius: 30,
     paddingVertical: 18,
     paddingHorizontal: 64,
     alignItems: 'center',
-    shadowColor: colors.primary[500],
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#DDD',
+    shadowColor: 'transparent',
   },
   startButtonText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontFamily: 'Tahoma',
-    letterSpacing: 1,
+    ...standardTextStyles.buttonLarge,
+    color: '#F5F5DC',
   },
 }); 

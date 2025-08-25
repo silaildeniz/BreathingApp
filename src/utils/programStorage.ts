@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AssessmentScores, PersonalizedProgram } from './programGenerator';
+import { logInfo, logError, logDebug } from './logger';
 
 const STORAGE_KEYS = {
   ASSESSMENT_SCORES: 'assessment_scores',
@@ -15,6 +16,7 @@ export interface StoredProgram {
   currentDay: number;
   completedDays: number[];
   startDate: string;
+  lastUpdated?: string;
   isActive: boolean;
 }
 
@@ -24,19 +26,20 @@ export const saveAssessmentResults = async (scores: AssessmentScores, program: P
     const storedProgram: StoredProgram = {
       scores,
       program,
-      currentDay: 2, // İkinci günden başla
-      completedDays: [1], // İlk gün otomatik olarak tamamlanmış
+      currentDay: 1, // İlk günden başla
+      completedDays: [], // İlk gün tamamlanmamış
       startDate: new Date().toISOString(),
+      lastUpdated: new Date().toISOString(),
       isActive: true,
     };
 
     await AsyncStorage.setItem(STORAGE_KEYS.ASSESSMENT_SCORES, JSON.stringify(scores));
     await AsyncStorage.setItem(STORAGE_KEYS.PERSONALIZED_PROGRAM, JSON.stringify(program));
-    await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_DAY, '2');
-    await AsyncStorage.setItem(STORAGE_KEYS.COMPLETED_DAYS, JSON.stringify([1]));
+    await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_DAY, '1');
+    await AsyncStorage.setItem(STORAGE_KEYS.COMPLETED_DAYS, JSON.stringify([]));
     await AsyncStorage.setItem(STORAGE_KEYS.PROGRAM_START_DATE, storedProgram.startDate);
 
-    console.log('Değerlendirme sonuçları kaydedildi (ilk gün otomatik tamamlandı):', storedProgram);
+    logInfo('Değerlendirme sonuçları kaydedildi (ilk gün başlatıldı):', storedProgram);
     return storedProgram;
   } catch (error) {
     console.error('Değerlendirme sonuçları kaydedilemedi:', error);
@@ -59,19 +62,19 @@ export const getStoredProgram = async (): Promise<StoredProgram | null> => {
 
     const parsedProgram = JSON.parse(program);
     
-    // Eğer program 20 günlükse, 10 günlük programa dönüştür
-    if (parsedProgram.length > 10) {
-      console.log('20 günlük program 10 günlük programa dönüştürülüyor...');
+    // Eğer program 5 günden uzunsa, 5 günlük programa dönüştür
+    if (parsedProgram.length > 5) {
+      logDebug('Uzun program 5 günlük programa dönüştürülüyor...');
       
-      // İlk 10 günü al
-      const newProgram = parsedProgram.slice(0, 10);
+      // İlk 5 günü al
+      const newProgram = parsedProgram.slice(0, 5);
       
-      // Tamamlanan günleri 10 günle sınırla
+      // Tamamlanan günleri 5 günle sınırla
       const parsedCompletedDays = JSON.parse(completedDays || '[]');
-      const newCompletedDays = parsedCompletedDays.filter((day: number) => day <= 10);
+      const newCompletedDays = parsedCompletedDays.filter((day: number) => day <= 5);
       
-      // Mevcut günü 10 günle sınırla
-      const newCurrentDay = Math.min(parseInt(currentDay || '1'), 10);
+      // Mevcut günü 5 günle sınırla
+      const newCurrentDay = Math.min(parseInt(currentDay || '1'), 5);
       
       // Yeni programı kaydet
       const updatedStoredProgram: StoredProgram = {
@@ -80,6 +83,7 @@ export const getStoredProgram = async (): Promise<StoredProgram | null> => {
         currentDay: newCurrentDay,
         completedDays: newCompletedDays,
         startDate: startDate || new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
         isActive: true,
       };
       
@@ -97,11 +101,29 @@ export const getStoredProgram = async (): Promise<StoredProgram | null> => {
       currentDay: parseInt(currentDay || '1'),
       completedDays: JSON.parse(completedDays || '[]'),
       startDate: startDate || new Date().toISOString(),
+      lastUpdated: new Date().toISOString(),
       isActive: true,
     };
   } catch (error) {
     console.error('Kaydedilmiş program getirilemedi:', error);
     return null;
+  }
+};
+
+// Programı güncelle ve kaydet
+export const saveStoredProgram = async (updatedProgram: StoredProgram) => {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEYS.ASSESSMENT_SCORES, JSON.stringify(updatedProgram.scores));
+    await AsyncStorage.setItem(STORAGE_KEYS.PERSONALIZED_PROGRAM, JSON.stringify(updatedProgram.program));
+    await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_DAY, updatedProgram.currentDay.toString());
+    await AsyncStorage.setItem(STORAGE_KEYS.COMPLETED_DAYS, JSON.stringify(updatedProgram.completedDays));
+    await AsyncStorage.setItem(STORAGE_KEYS.PROGRAM_START_DATE, updatedProgram.startDate);
+
+    logInfo('Program güncellendi:', updatedProgram);
+    return updatedProgram;
+  } catch (error) {
+    console.error('Program güncellenemedi:', error);
+    throw error;
   }
 };
 
@@ -119,40 +141,55 @@ export const completeDay = async (dayNumber: number) => {
     const nextDay = Math.min(dayNumber + 1, storedProgram.program.length);
     await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_DAY, nextDay.toString());
 
-    console.log(`Gün ${dayNumber} tamamlandı. Sonraki gün: ${nextDay}`);
+    logInfo(`Gün ${dayNumber} tamamlandı. Sonraki gün: ${nextDay}`);
   } catch (error) {
-    console.error('Gün tamamlanamadı:', error);
+    logError('Gün tamamlanamadı:', error);
     throw error;
   }
 };
 
 // Günün kilitli olup olmadığını kontrol et
-export const isDayLocked = async (dayNumber: number): Promise<boolean> => {
+export const isDayLocked = async (dayNumber: number) => {
   try {
     const storedProgram = await getStoredProgram();
     if (!storedProgram) return true;
 
-    // İlk gün her zaman açık (otomatik tamamlanmış)
+    // İlk gün her zaman açık
     if (dayNumber === 1) return false;
 
-    // Program başlangıç tarihini al
-    const startDate = new Date(storedProgram.startDate);
-    const today = new Date();
-    
-    // Bugünün tarihini hesapla (program başlangıcından itibaren kaçıncı gün)
-    const timeDiff = today.getTime() - startDate.getTime();
-    const daysDiff = Math.floor(timeDiff / (1000 * 3600 * 24));
-    
-    // Günlük kilitleme: Gün sadece o günün bitiminde açılır
-    // Örneğin: Program 1 Ocak'ta başladıysa, 2. gün 2 Ocak'ta açılır
-    const shouldBeUnlocked = daysDiff >= (dayNumber - 1);
-    
-    // Ayrıca önceki günün tamamlanmış olması da gerekli
+    // 5 günlük program kontrolü
+    if (dayNumber > 5) {
+      logDebug(`Gün ${dayNumber} program dışında (5 günlük program)`);
+      return true;
+    }
+
+    // Önceki günün tamamlanmış olması gerekli
     const previousDay = dayNumber - 1;
     const isPreviousDayCompleted = storedProgram.completedDays.includes(previousDay);
     
-    // Gün hem tarih olarak açık olmalı hem de önceki gün tamamlanmış olmalı
-    return !shouldBeUnlocked || !isPreviousDayCompleted;
+    // Eğer önceki gün tamamlanmamışsa, bu gün kilitli
+    if (!isPreviousDayCompleted) {
+      logDebug(`Gün ${dayNumber} kilitli: Önceki gün (${previousDay}) tamamlanmamış`);
+      return true;
+    }
+
+    // Program başlangıç tarihini al ve takvim günü bazlı kıyasla (00:00 normalize)
+    const startDate = new Date(storedProgram.startDate);
+    const today = new Date();
+    const normalize = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const startDay = normalize(startDate);
+    const todayDay = normalize(today);
+    const daysDiff = Math.floor((todayDay.getTime() - startDay.getTime()) / (1000 * 3600 * 24));
+    
+    // Gün açma kuralı: Sadece tarih değişimiyle açılır (öğlen şartı yok)
+    // Örn: Program 1 Ocak'ta başladıysa, 2. gün 2 Ocak'ta açılır
+    const shouldBeUnlocked = daysDiff >= (dayNumber - 1);
+    
+    if (!shouldBeUnlocked) {
+      logDebug(`Gün ${dayNumber} kilitli: Zaman henüz gelmedi (geçen gün: ${daysDiff})`);
+    }
+    
+    return !shouldBeUnlocked;
   } catch (error) {
     console.error('Gün kilidi kontrol edilemedi:', error);
     return true;
@@ -165,7 +202,15 @@ export const getCurrentOpenDay = async (): Promise<number> => {
     const storedProgram = await getStoredProgram();
     if (!storedProgram) return 1;
 
-    // Tamamlanan günlerden sonraki ilk gün
+    // Program boyunca döngü yap ve ilk açık günü bul
+    for (let day = 1; day <= storedProgram.program.length; day++) {
+      const isLocked = await isDayLocked(day);
+      if (!isLocked) {
+        return day;
+      }
+    }
+    
+    // Hiç açık gün yoksa, tamamlanan günlerden sonraki günü döndür
     const lastCompletedDay = Math.max(...storedProgram.completedDays, 0);
     return Math.min(lastCompletedDay + 1, storedProgram.program.length);
   } catch (error) {
@@ -184,9 +229,9 @@ export const resetProgram = async () => {
       STORAGE_KEYS.COMPLETED_DAYS,
       STORAGE_KEYS.PROGRAM_START_DATE,
     ]);
-    console.log('Program sıfırlandı');
+    logInfo('Program sıfırlandı');
   } catch (error) {
-    console.error('Program sıfırlanamadı:', error);
+    logError('Program sıfırlanamadı:', error);
   }
 };
 
@@ -197,5 +242,43 @@ export const hasActiveProgram = async (): Promise<boolean> => {
     return program !== null && program.isActive;
   } catch (error) {
     return false;
+  }
+}; 
+
+// Premium abonelik durumunu kontrol et
+export const isPremiumUser = async (): Promise<boolean> => {
+  try {
+    const premiumStatus = await AsyncStorage.getItem('premium_status');
+    return premiumStatus === 'active';
+  } catch (error) {
+    console.error('Premium durum kontrol edilemedi:', error);
+    return false;
+  }
+};
+
+// Premium abonelik başlat
+export const activatePremium = async () => {
+  try {
+    await AsyncStorage.setItem('premium_status', 'active');
+    await AsyncStorage.setItem('premium_start_date', new Date().toISOString());
+    logInfo('Premium abonelik aktifleştirildi');
+  } catch (error) {
+    logError('Premium abonelik aktifleştirilemedi:', error);
+    throw error;
+  }
+};
+
+// Premium abonelik durumunu getir
+export const getPremiumStatus = async () => {
+  try {
+    const status = await AsyncStorage.getItem('premium_status');
+    const startDate = await AsyncStorage.getItem('premium_start_date');
+    return {
+      isActive: status === 'active',
+      startDate: startDate ? new Date(startDate) : null,
+    };
+  } catch (error) {
+    console.error('Premium durum getirilemedi:', error);
+    return { isActive: false, startDate: null };
   }
 }; 

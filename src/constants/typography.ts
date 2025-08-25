@@ -261,4 +261,102 @@ export const textStyles = {
       letterSpacing: typography.letterSpacing.wide,
     },
   },
+};
+
+// Standardized text styles for consistent use across screens
+export const standardTextStyles = {
+  // Main titles (screen headers)
+  mainTitle: {
+    fontFamily: 'Tahoma',
+    fontSize: 22,
+    fontWeight: '700' as const,
+    lineHeight: 32,
+    letterSpacing: -0.5,
+  },
+  
+  // Section titles
+  sectionTitle: {
+    fontFamily: 'Tahoma',
+    fontSize: 22,
+    fontWeight: '700' as const,
+    lineHeight: 24,
+    letterSpacing: 0,
+  },
+  
+  // Card titles
+  cardTitle: {
+    fontFamily: 'Tahoma',
+    fontSize: 18,
+    fontWeight: '600' as const,
+    lineHeight: 30,
+    letterSpacing: 1,
+  },
+  
+  // Body text
+  bodyLarge: {
+    fontFamily: 'Tahoma',
+    fontSize: 16,
+    fontWeight: '400' as const,
+    lineHeight: 24,
+    letterSpacing: 0,
+  },
+  
+  bodyMedium: {
+    fontFamily: 'Tahoma',
+    fontSize: 16,
+    fontWeight: '400' as const,
+    lineHeight: 20,
+    letterSpacing: 0,
+  },
+  
+  bodySmall: {
+    fontFamily: 'Tahoma',
+    fontSize: 13,
+    fontWeight: '400' as const,
+    lineHeight: 16,
+    letterSpacing: 0.5,
+  },
+  
+  // Button text
+  buttonLarge: {
+    fontFamily: 'Tahoma',
+    fontSize: 18,
+    fontWeight: '600' as const,
+    lineHeight: 22,
+    letterSpacing: 0.5,
+  },
+  
+  buttonMedium: {
+    fontFamily: 'Tahoma',
+    fontSize: 16,
+    fontWeight: '600' as const,
+    lineHeight: 20,
+    letterSpacing: 0.5,
+  },
+  
+  buttonSmall: {
+    fontFamily: 'Tahoma',
+    fontSize: 14,
+    fontWeight: '600' as const,
+    lineHeight: 18,
+    letterSpacing: 0.5,
+  },
+  
+  // Caption text
+  caption: {
+    fontFamily: 'Tahoma',
+    fontSize: 12,
+    fontWeight: '400' as const,
+    lineHeight: 16,
+    letterSpacing: 0.5,
+  },
+  
+  // Label text
+  label: {
+    fontFamily: 'Tahoma',
+    fontSize: 14,
+    fontWeight: '500' as const,
+    lineHeight: 18,
+    letterSpacing: 0.25,
+  },
 }; 

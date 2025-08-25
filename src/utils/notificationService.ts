@@ -100,6 +100,49 @@ export class NotificationService {
     }
   }
 
+  // İki günlük hatırlatıcıyı birlikte planla (mevcut planları temizler)
+  async scheduleDualDailyReminders(hourA: number, minuteA: number, hourB: number, minuteB: number) {
+    try {
+      await this.initialize();
+      await this.cancelAllNotifications();
+
+      const mkFutureDate = (h: number, m: number) => {
+        const now = new Date();
+        const d = new Date();
+        d.setHours(h, m, 0, 0);
+        if (d <= now) d.setDate(d.getDate() + 1);
+        return d;
+      };
+
+      const first = mkFutureDate(hourA, minuteA);
+      const second = mkFutureDate(hourB, minuteB);
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🌬️ Nefes Zamanı',
+          body: 'Kısa bir nefes egzersizi iyi gelir.',
+          data: { type: 'daily_reminder_a' },
+          sound: 'default',
+        },
+        trigger: { type: SchedulableTriggerInputTypes.DATE, date: first },
+      });
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '😴 Uyku Öncesi Hazırlık',
+          body: 'Uyumadan önce 5 dakikalık nefes egzersizi deneyin.',
+          data: { type: 'daily_reminder_b' },
+          sound: 'default',
+        },
+        trigger: { type: SchedulableTriggerInputTypes.DATE, date: second },
+      });
+
+      console.log(`Çift günlük bildirim planlandı: A=${hourA}:${minuteA}, B=${hourB}:${minuteB}`);
+    } catch (error) {
+      console.error('Çift günlük bildirimler planlanamadı:', error);
+    }
+  }
+
   // Motivasyonel bildirimler
   async scheduleMotivationalReminders() {
     const motivationalMessages = [

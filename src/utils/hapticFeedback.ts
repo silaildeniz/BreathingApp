@@ -1,4 +1,21 @@
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+
+let hapticEnabledCache: boolean = true;
+
+// Startup: hydrate cache
+AsyncStorage.getItem('haptic_enabled')
+  .then(v => {
+    if (v === 'true') hapticEnabledCache = true;
+    if (v === 'false') hapticEnabledCache = false;
+  })
+  .catch(() => {});
+
+export const setHapticEnabled = async (enabled: boolean) => {
+  hapticEnabledCache = enabled;
+  try { await AsyncStorage.setItem('haptic_enabled', enabled ? 'true' : 'false'); } catch {}
+};
 
 // Haptic Feedback Types
 export enum HapticType {
@@ -11,12 +28,17 @@ export enum HapticType {
   SELECTION = 'selection',
 }
 
+
+
 // Haptic Feedback Utility
 export class HapticFeedback {
   // Light impact (for subtle interactions)
   static light() {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (!hapticEnabledCache) return;
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
     } catch (error) {
       console.log('Haptic feedback not available');
     }
@@ -25,7 +47,10 @@ export class HapticFeedback {
   // Medium impact (for button presses)
   static medium() {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (!hapticEnabledCache) return;
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
     } catch (error) {
       console.log('Haptic feedback not available');
     }
@@ -34,7 +59,10 @@ export class HapticFeedback {
   // Heavy impact (for important actions)
   static heavy() {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      if (!hapticEnabledCache) return;
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      }
     } catch (error) {
       console.log('Haptic feedback not available');
     }
@@ -43,7 +71,10 @@ export class HapticFeedback {
   // Success notification
   static success() {
     try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (!hapticEnabledCache) return;
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
     } catch (error) {
       console.log('Haptic feedback not available');
     }
@@ -52,7 +83,10 @@ export class HapticFeedback {
   // Warning notification
   static warning() {
     try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      if (!hapticEnabledCache) return;
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }
     } catch (error) {
       console.log('Haptic feedback not available');
     }
@@ -61,7 +95,10 @@ export class HapticFeedback {
   // Error notification
   static error() {
     try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      if (!hapticEnabledCache) return;
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
     } catch (error) {
       console.log('Haptic feedback not available');
     }
@@ -70,7 +107,10 @@ export class HapticFeedback {
   // Selection change
   static selection() {
     try {
-      Haptics.selectionAsync();
+      if (!hapticEnabledCache) return;
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        Haptics.selectionAsync();
+      }
     } catch (error) {
       console.log('Haptic feedback not available');
     }

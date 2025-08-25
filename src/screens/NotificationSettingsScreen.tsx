@@ -1,16 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, ImageBackground, ScrollView, Alert } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../contexts/ThemeContext';
-import { COLORS, FONTS } from '../constants/typography';
+import { COLORS, FONTS, standardTextStyles } from '../constants/typography';
 import { notificationService } from '../utils/notificationService';
+import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { RootStackParamList } from '../../App';
 
 // KALICI STATE TANIMLARI
 const WAKE_KEY = 'wake_time';
 const SLEEP_KEY = 'sleep_time';
 
+type NotificationSettingsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'NotificationSettings'>;
+
 export default function NotificationSettingsScreen() {
+  const navigation = useNavigation<NotificationSettingsScreenNavigationProp>();
   const { themeColors } = useTheme();
   const [wakeTime, setWakeTime] = useState(new Date(2023, 0, 1, 7, 0));
   const [sleepTime, setSleepTime] = useState(new Date(2023, 0, 1, 23, 0));
@@ -42,77 +49,126 @@ export default function NotificationSettingsScreen() {
   };
 
   const handleSave = async () => {
-    await AsyncStorage.setItem(WAKE_KEY, wakeTime.toISOString());
-    await AsyncStorage.setItem(SLEEP_KEY, sleepTime.toISOString());
-    // Sabah bildirimi planla
-    await notificationService.scheduleDailyReminder(wakeTime.getHours(), wakeTime.getMinutes());
-    // Akşam bildirimi planla (uyku saatinden 1 saat önce)
-    let hour = sleepTime.getHours() - 1;
-    let minute = sleepTime.getMinutes();
-    if (hour < 0) { hour = 23; }
-    await notificationService.scheduleMotivationalReminders();
-    await notificationService.scheduleDailyReminder(hour, minute);
+    try {
+      // İzin yoksa iste
+      const perm = await Notifications.getPermissionsAsync();
+      if (perm.status !== 'granted') {
+        const req = await Notifications.requestPermissionsAsync();
+        if (req.status !== 'granted') {
+          Alert.alert('İzin Gerekli', 'Bildirim izni verilmedi. Ayarlar’dan izin verebilirsiniz.');
+          return;
+        }
+      }
+
+      await AsyncStorage.setItem(WAKE_KEY, wakeTime.toISOString());
+      await AsyncStorage.setItem(SLEEP_KEY, sleepTime.toISOString());
+
+      // Uyanıştan 1 saat sonra ve uykudan 1 saat önce hatırlat
+      const morningHour = (wakeTime.getHours() + 1) % 24;
+      const morningMinute = wakeTime.getMinutes();
+      const beforeSleepHour = (sleepTime.getHours() - 1 + 24) % 24;
+      const beforeSleepMinute = sleepTime.getMinutes();
+
+      await notificationService.scheduleDualDailyReminders(
+        morningHour,
+        morningMinute,
+        beforeSleepHour,
+        beforeSleepMinute
+      );
+      
+      // Kaydedildi uyarısı göster ve ana sayfaya dön
+      Alert.alert(
+        'Başarılı',
+        'Bildirim ayarları kaydedildi!',
+        [
+          {
+            text: 'Tamam',
+            onPress: () => navigation.navigate('Home')
+          }
+        ]
+      );
+    } catch (error) {
+      Alert.alert(
+        'Hata',
+        'Ayarlar kaydedilirken bir hata oluştu.',
+        [{ text: 'Tamam' }]
+      );
+    }
   };
 
   if (loading) {
-    return <View style={[styles.container, { backgroundColor: themeColors.background, justifyContent: 'center', alignItems: 'center' }]}><Text style={{ color: themeColors.text }}>Yükleniyor...</Text></View>;
+    return (
+      <ImageBackground source={require('../../assets/backgrounds/arkaplan.jpg')} style={{ flex: 1 }} resizeMode="cover">
+        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={[standardTextStyles.bodyLarge, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Yükleniyor...</Text>
+        </View>
+      </ImageBackground>
+    );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: themeColors.background }] }>
-      <Text style={[styles.title, { color: themeColors.text }]}>Uyku Ayarları</Text>
-          <View style={styles.settingItem}>
-        <Text style={[styles.label, { color: themeColors.text }]}>Uyanma Saati</Text>
-        <View>
-          <TouchableOpacity onPress={() => setShowWakePicker(!showWakePicker)} style={styles.timeButton}>
-            <Text style={[styles.timeText, { color: themeColors.primary }]}> {wakeTime.getHours().toString().padStart(2, '0')}:{wakeTime.getMinutes().toString().padStart(2, '0')}</Text>
-          </TouchableOpacity>
-          {showWakePicker && (
-            <DateTimePicker
-              value={wakeTime}
-              mode="time"
-              is24Hour={true}
-              display="spinner"
-              onChange={onWakeTimeChange}
-              style={{ alignSelf: 'center' }}
-            />
-          )}
-        </View>
+    <ImageBackground source={require('../../assets/backgrounds/arkaplan.jpg')} style={{ flex: 1 }} resizeMode="cover">
+      <ScrollView style={{ flex: 1, backgroundColor: 'transparent' }} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.container}>
+          <Text style={[standardTextStyles.mainTitle, { color: '#F5F5DC', marginBottom: 24, textAlign: 'center', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Uyku Ayarları</Text>
+          <View style={[styles.settingItem, { backgroundColor: 'rgba(245, 245, 220, 0.1)', borderColor: '#DDD', borderWidth: 1, borderRadius: 12, padding: 16 }]}>
+            <Text style={[standardTextStyles.label, { color: '#F5F5DC', marginBottom: 8, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Uyanma Saati</Text>
+            <View>
+              <TouchableOpacity onPress={() => setShowWakePicker(!showWakePicker)} style={[styles.timeButton, { backgroundColor: 'rgba(245, 245, 220, 0.15)' }]}>
+                <Text style={[standardTextStyles.bodyLarge, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}> {wakeTime.getHours().toString().padStart(2, '0')}:{wakeTime.getMinutes().toString().padStart(2, '0')}</Text>
+              </TouchableOpacity>
+              {showWakePicker && (
+                <DateTimePicker
+                  value={wakeTime}
+                  mode="time"
+                  is24Hour={true}
+                  display="spinner"
+                  onChange={onWakeTimeChange}
+                  style={{ alignSelf: 'center' }}
+                />
+              )}
+            </View>
           </View>
-          <View style={styles.settingItem}>
-        <Text style={[styles.label, { color: themeColors.text }]}>Uyku Saati</Text>
-        <View>
-          <TouchableOpacity onPress={() => setShowSleepPicker(!showSleepPicker)} style={styles.timeButton}>
-            <Text style={[styles.timeText, { color: themeColors.primary }]}> {sleepTime.getHours().toString().padStart(2, '0')}:{sleepTime.getMinutes().toString().padStart(2, '0')}</Text>
-        </TouchableOpacity>
-      {showSleepPicker && (
-        <DateTimePicker
-          value={sleepTime}
-          mode="time"
-          is24Hour={true}
-              display="spinner"
-              onChange={onSleepTimeChange}
-              style={{ alignSelf: 'center' }}
-            />
-          )}
+          <View style={[styles.settingItem, { backgroundColor: 'rgba(245, 245, 220, 0.1)', borderColor: '#DDD', borderWidth: 1, borderRadius: 12, padding: 16 }]}>
+            <Text style={[standardTextStyles.label, { color: '#F5F5DC', marginBottom: 8, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Uyku Saati</Text>
+            <View>
+              <TouchableOpacity onPress={() => setShowSleepPicker(!showSleepPicker)} style={[styles.timeButton, { backgroundColor: 'rgba(245, 245, 220, 0.15)' }]}>
+                <Text style={[standardTextStyles.bodyLarge, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}> {sleepTime.getHours().toString().padStart(2, '0')}:{sleepTime.getMinutes().toString().padStart(2, '0')}</Text>
+              </TouchableOpacity>
+              {showSleepPicker && (
+                <DateTimePicker
+                  value={sleepTime}
+                  mode="time"
+                  is24Hour={true}
+                  display="spinner"
+                  onChange={onSleepTimeChange}
+                  style={{ alignSelf: 'center' }}
+                />
+              )}
+            </View>
+          </View>
+          <TouchableOpacity style={[styles.saveButton, { backgroundColor: 'rgba(245, 245, 220, 0.15)' }]} onPress={handleSave}>
+            <Text style={[standardTextStyles.buttonLarge, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Kaydet</Text>
+          </TouchableOpacity>
         </View>
-      </View>
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-        <Text style={styles.saveButtonText}>Kaydet</Text>
-      </TouchableOpacity>
-      <Text style={[styles.info, { color: themeColors.textSecondary }]}>Belirlediğiniz saatlere göre sabah ve akşam otomatik bildirim gönderilecektir.</Text>
-    </View>
+      </ScrollView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 40,
+  },
   container: {
     flex: 1,
     padding: 24,
+    backgroundColor: 'transparent',
   },
   title: {
-    fontSize: 24,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.mainTitle,
+    color: '#F5F5DC',
     marginBottom: 24,
     textAlign: 'center',
   },
@@ -121,45 +177,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   label: {
-    fontSize: 18,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.label,
+    color: '#F5F5DC',
     marginBottom: 8,
   },
   timeButton: {
-    backgroundColor: COLORS.surfaceVariant,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    marginBottom: 8,
+    borderRadius: 16,
+    padding: 18,
+    backgroundColor: 'rgba(245, 245, 220, 0.15)',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#DDD',
+    shadowColor: 'transparent',
   },
   timeText: {
-    fontSize: 20,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.bodyLarge,
+    color: '#F5F5DC',
   },
   info: {
-    fontSize: 14,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.bodySmall,
+    color: '#F5F5DC',
     textAlign: 'center',
     marginTop: 32,
   },
   saveButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: 'rgba(245, 245, 220, 0.15)',
     borderRadius: 20,
     padding: 18,
     alignItems: 'center',
     marginTop: 20,
-    shadowColor: COLORS.primary,
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 10,
+    borderWidth: 1,
+    borderColor: '#DDD',
   },
   saveButtonText: {
+    ...standardTextStyles.buttonLarge,
     color: COLORS.white,
-    fontSize: 18,
-    fontFamily: 'Tahoma',
   },
 }); 

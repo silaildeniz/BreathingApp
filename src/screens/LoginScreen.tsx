@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,18 +11,19 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  ImageBackground,
+  Animated,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList } from '../../App';
 import { AuthContext } from '../contexts/AuthContext';
 import { registerWithEmail, loginWithEmail, loginWithGoogle, loginWithApple } from '../services/authService';
-import { COLORS, FONTS } from '../constants/typography';
+import { COLORS, FONTS, standardTextStyles } from '../constants/typography';
 import { triggerHapticFeedback, HapticType } from '../utils/hapticFeedback';
 
 const { width, height } = Dimensions.get('window');
 
-type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
+type LoginScreenNavigationProp = StackNavigationProp<any, 'Login'>;
 
 export default function LoginScreen() {
   const navigation = useNavigation<LoginScreenNavigationProp>();
@@ -32,6 +33,26 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [breathAnim] = useState(new Animated.Value(0));
+
+  useEffect(() => {
+    // Breathing animasyonu başlat
+    const breathAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathAnim, {
+          toValue: 1,
+          duration: 4000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(breathAnim, {
+          toValue: 0,
+          duration: 4000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    breathAnimation.start();
+  }, []);
 
   const handleGoogleLogin = async () => {
     try {
@@ -79,8 +100,12 @@ export default function LoginScreen() {
       } else {
         await registerWithEmail(email, password, name);
       }
-      
-      // Başarılı giriş sonrası App.tsx'teki auth state listener otomatik olarak Home'a yönlendirecek
+
+      // Misafir modunu kapat (daha önce misafir seçilmiş olabilir)
+      setGuestMode(false);
+
+      // Başarılı giriş sonrası navigation stack'i temizleyerek Home'a yönlendir
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
     } catch (error: any) {
       Alert.alert('Hata', error.message);
     } finally {
@@ -104,6 +129,8 @@ export default function LoginScreen() {
             setIsLoading(true);
             setGuestMode(true);
             setIsLoading(false);
+            // Home sayfasına yönlendir
+            navigation.navigate('Home');
           }
         }
       ]
@@ -116,116 +143,122 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Text style={styles.title}>
-            {isLogin ? 'Hoş Geldiniz' : 'Hesap Oluşturun'}
-          </Text>
-          <Text style={styles.subtitle}>
-            {isLogin 
-              ? 'Nefes egzersizi yolculuğunuza devam edin'
-              : 'Kişiselleştirilmiş deneyim için hesap oluşturun'
-            }
-          </Text>
-        </View>
-
-        <View style={styles.form}>
-          {!isLogin && (
-            <TextInput
-              style={styles.input}
-              placeholder="Adınız"
-              placeholderTextColor={COLORS.textTertiary}
-              value={name}
-              onChangeText={setName}
-            />
-          )}
-          
-          <TextInput
-            style={styles.input}
-            placeholder="E-posta"
-            placeholderTextColor={COLORS.textTertiary}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          
-          <TextInput
-            style={styles.input}
-            placeholder="Şifre"
-            placeholderTextColor={COLORS.textTertiary}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-
-          <TouchableOpacity
-            style={[styles.authButton, isLoading && styles.disabledButton]}
-            onPress={handleEmailAuth}
-            disabled={isLoading}
-            activeOpacity={0.8}
-          >
-            {isLoading ? (
-              <ActivityIndicator color={COLORS.white} />
-            ) : (
-              <Text style={styles.authButtonText}>
-                {isLogin ? 'Giriş Yap' : 'Kayıt Ol'}
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>veya</Text>
-          <View style={styles.dividerLine} />
-        </View>
-
-        <View style={styles.socialButtons}>
-          <TouchableOpacity
-            style={[styles.socialButton, styles.googleButton, isLoading && styles.disabledButton]}
-            onPress={handleGoogleLogin}
-            disabled={isLoading}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.googleButtonText}>🔍 Google ile Devam Et</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.socialButton, styles.appleButton, isLoading && styles.disabledButton]}
-            onPress={handleAppleLogin}
-            disabled={isLoading}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.appleButtonText}>🍎 Apple ile Devam Et</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.switchMode}>
-          <Text style={styles.switchText}>
-            {isLogin ? 'Hesabınız yok mu?' : 'Zaten hesabınız var mı?'}
-          </Text>
-          <TouchableOpacity onPress={handleSwitchMode} disabled={isLoading}>
-            <Text style={styles.switchButton}>
-              {isLogin ? 'Kayıt Ol' : 'Giriş Yap'}
+    <View style={{ flex: 1 }}>
+      <Animated.Text 
+        style={[
+          standardTextStyles.mainTitle,
+          {
+            fontSize: 35,
+            color: '#FFD700',
+            marginBottom: 16,
+            textAlign: 'center',
+            textShadowColor: 'rgba(0, 0, 0, 0.9)',
+            textShadowOffset: { width: 2, height: 2 },
+            textShadowRadius: 4,
+            fontWeight: 'bold',
+            letterSpacing: 4,
+            opacity: breathAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.6, 1]
+            }),
+            transform: [{ scale: breathAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.8, 1.2]
+            })}],
+            position: 'absolute',
+            top: 150,
+            left: 0,
+            right: 0,
+            zIndex: 9999
+          }
+        ]}
+      >
+        BUHU
+      </Animated.Text>
+      <ImageBackground source={require('../../assets/backgrounds/arkaplan.jpg')} style={{ flex: 1 }} resizeMode="cover">
+        <ScrollView style={{ flex: 1, backgroundColor: 'transparent' }} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.header}>
+            <Text style={[standardTextStyles.mainTitle, { color: '#F5F5DC', marginBottom: 8, textAlign: 'center', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
+              {isLogin ? 'Hoş Geldiniz' : 'Hesap Oluşturun'}
             </Text>
-          </TouchableOpacity>
-        </View>
+            <Text style={[standardTextStyles.bodyMedium, { color: '#F5F5DC', textAlign: 'center', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
+              {isLogin 
+                ? 'Nefes egzersizi yolculuğunuza devam edin'
+                : 'Kişiselleştirilmiş deneyim için hesap oluşturun'
+              }
+            </Text>
+          </View>
 
-        <TouchableOpacity
-          style={styles.skipButton}
-          onPress={handleSkipLogin}
-          disabled={isLoading}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.skipButtonText}>Misafir Olarak Devam Et</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          <View style={styles.form}>
+            {!isLogin && (
+              <TextInput
+                style={[styles.input, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}
+                placeholder="Adınız"
+                placeholderTextColor="#F5F5DC"
+                value={name}
+                onChangeText={setName}
+              />
+            )}
+            
+            <TextInput
+              style={[styles.input, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}
+              placeholder="E-posta"
+              placeholderTextColor="#F5F5DC"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            
+            <TextInput
+              style={[styles.input, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}
+              placeholder="Şifre"
+              placeholderTextColor="#F5F5DC"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+
+            <TouchableOpacity
+              style={[styles.authButton, isLoading && styles.disabledButton, { marginTop: 20 }]}
+              onPress={handleEmailAuth}
+              disabled={isLoading}
+              activeOpacity={0.8}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={COLORS.white} />
+              ) : (
+                <Text style={[standardTextStyles.buttonMedium, { color: COLORS.white, textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
+                  {isLogin ? 'Giriş Yap' : 'Kayıt Ol'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+
+
+          <View style={styles.switchMode}>
+            <Text style={[standardTextStyles.bodyMedium, { color: '#F5F5DC', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
+              {isLogin ? 'Hesabınız yok mu?' : 'Zaten hesabınız var mı?'}
+            </Text>
+            <TouchableOpacity onPress={handleSwitchMode} disabled={isLoading}>
+              <Text style={[standardTextStyles.bodyMedium, { color: isLogin ? '#4CAF50' : '#2E7D32', marginLeft: 4, textDecorationLine: 'underline', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>
+                {isLogin ? 'Kayıt Ol' : 'Giriş Yap'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={styles.skipButton}
+            onPress={handleSkipLogin}
+            disabled={isLoading}
+            activeOpacity={0.7}
+          >
+            <Text style={[standardTextStyles.bodyMedium, { color: '#F5F5DC', textDecorationLine: 'underline', textShadowColor: 'rgba(0, 0, 0, 0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 }]}>Misafir Olarak Devam Et</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </ImageBackground>
+    </View>
   );
 }
 
@@ -244,53 +277,46 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   title: {
-    fontSize: 28,
-    fontFamily: 'Tahoma',
-    color: COLORS.primary,
+    ...standardTextStyles.mainTitle,
+    color: '#F5F5DC',
     marginBottom: 8,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-    color: COLORS.textSecondary,
+    ...standardTextStyles.bodyMedium,
+    color: '#F5F5DC',
     textAlign: 'center',
-    lineHeight: 22,
   },
   socialButtons: {
     marginBottom: 30,
   },
   socialButton: {
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 18,
     marginBottom: 12,
     alignItems: 'center',
-    shadowColor: COLORS.shadow,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#DDD',
+    shadowColor: 'transparent',
   },
   googleButton: {
-    backgroundColor: COLORS.white,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: COLORS.gray[200],
+    borderColor: '#DDD',
   },
   googleButtonText: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-    color: COLORS.text,
+    ...standardTextStyles.bodyMedium,
+    color: '#F5F5DC',
   },
   appleButton: {
-    backgroundColor: COLORS.black,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#DDD',
   },
   appleButtonText: {
-    fontSize: 16,
-    fontFamily: 'Tahoma',
-    color: COLORS.white,
+    ...standardTextStyles.bodyMedium,
+    color: '#F5F5DC',
   },
   divider: {
     flexDirection: 'row',
@@ -304,35 +330,28 @@ const styles = StyleSheet.create({
   },
   dividerText: {
     marginHorizontal: 16,
-    color: COLORS.textSecondary,
-    fontSize: 14,
-    fontFamily: 'Tahoma',
+    color: '#F5F5DC',
+    ...standardTextStyles.bodySmall,
   },
   form: {
     marginBottom: 30,
   },
   input: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 16,
-    padding: 18,
     marginBottom: 16,
-    fontSize: 16,
-    fontFamily: 'Tahoma',
+    ...standardTextStyles.bodyMedium,
     borderWidth: 1,
-    borderColor: COLORS.gray[200],
-    color: COLORS.text,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderColor: '#DDD',
+    borderRadius: 12,
+    padding: 14,
+    backgroundColor: 'transparent',
+    color: '#F5F5DC',
   },
   authButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: '#2C3E50',
     borderRadius: 16,
     padding: 18,
     alignItems: 'center',
-    shadowColor: COLORS.primary,
+    shadowColor: '#2C3E50',
     shadowOffset: {
       width: 0,
       height: 6,
@@ -342,9 +361,8 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   authButtonText: {
+    ...standardTextStyles.buttonLarge,
     color: COLORS.white,
-    fontSize: 18,
-    fontFamily: 'Tahoma',
   },
   switchMode: {
     flexDirection: 'row',
@@ -353,23 +371,20 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   switchText: {
+    ...standardTextStyles.bodyMedium,
     color: COLORS.textSecondary,
-    fontSize: 14,
-    fontFamily: 'Tahoma',
   },
   switchButton: {
+    ...standardTextStyles.bodyMedium,
     color: COLORS.primary,
-    fontSize: 14,
-    fontFamily: 'Tahoma',
     marginLeft: 4,
   },
   skipButton: {
     alignItems: 'center',
   },
   skipButtonText: {
+    ...standardTextStyles.bodyMedium,
     color: COLORS.textSecondary,
-    fontSize: 14,
-    fontFamily: 'Tahoma',
     textDecorationLine: 'underline',
   },
   disabledButton: {
